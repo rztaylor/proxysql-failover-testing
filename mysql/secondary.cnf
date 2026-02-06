@@ -4,5 +4,10 @@ log_bin=mysql-bin
 binlog_format=ROW
 gtid_mode=ON
 enforce_gtid_consistency=ON
-# Note: read_only is set via init script after database initialization
-
+log_slave_updates=ON
+binlog_expire_logs_seconds=86400
+relay_log=relay-bin
+relay_log_purge=ON
+skip_replica_start=ON
+# Note: read_only must be OFF during startup for Docker entrypoint initialization
+# start.sh will set it to ON immediately after startup

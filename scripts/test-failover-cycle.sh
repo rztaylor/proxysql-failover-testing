@@ -1,5 +1,5 @@
 #!/bin/bash
-# Automated failover cycle test script
+# Automated failover cycle test script with replication support
 # Runs failover/failback cycles indefinitely until Ctrl+C
 
 set -e
@@ -16,7 +16,7 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 CYAN='\033[0;36m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
 print_header() {
     echo ""
@@ -34,16 +34,31 @@ print_section() {
 get_mysql_status() {
     local container=$1
     local result
-    result=$(docker exec "$container" mysql -uroot -proot -N -e "SELECT @@read_only, @@super_read_only" 2>/dev/null)
-    if [ $? -eq 0 ]; then
-        read_only=$(echo "$result" | awk '{print $1}')
-        if [ "$read_only" = "0" ]; then
-            echo -e "${GREEN}READ-WRITE${NC}"
-        else
-            echo -e "${RED}READ-ONLY${NC}"
-        fi
+    result=$(docker exec "$container" mysql -uroot -proot -N -e "SELECT @@read_only" 2>/dev/null)
+    if [ "$result" = "0" ]; then
+        echo -e "${GREEN}READ-WRITE${NC}"
+    elif [ "$result" = "1" ]; then
+        echo -e "${BLUE}READ-ONLY${NC}"
     else
         echo -e "${RED}NOT AVAILABLE${NC}"
+    fi
+}
+
+get_replication_status() {
+    local container=$1
+    local io_state source_host
+    
+    io_state=$(docker exec "$container" mysql -uroot -proot -N -e \
+        "SELECT SERVICE_STATE FROM performance_schema.replication_connection_status;" 2>/dev/null || echo "")
+    source_host=$(docker exec "$container" mysql -uroot -proot -N -e \
+        "SELECT HOST FROM performance_schema.replication_connection_configuration;" 2>/dev/null || echo "")
+    
+    if [ "$io_state" = "ON" ]; then
+        echo -e "${GREEN}Replicating${NC} from $source_host"
+    elif [ -n "$source_host" ]; then
+        echo -e "${YELLOW}Stopped${NC}"
+    else
+        echo "Not a replica"
     fi
 }
 
@@ -61,21 +76,21 @@ get_proxysql_hostgroups() {
 
 get_connection_stats() {
     docker exec proxysql mysql -h127.0.0.1 -P6032 -uadmin -padmin -N -e \
-        "SELECT srv_host, ConnUsed, ConnFree, ConnOK, ConnERR, Queries FROM stats_mysql_connection_pool WHERE hostgroup=0;" 2>/dev/null | \
-    while read -r host used free ok err queries; do
-        echo -e "  ${GREEN}$host${NC}: Queries=$queries, ConnOK=$ok, ConnERR=$err"
+        "SELECT srv_host, Queries FROM stats_mysql_connection_pool WHERE hostgroup=0;" 2>/dev/null | \
+    while read -r host queries; do
+        echo -e "  ${GREEN}$host${NC}: Queries=$queries"
     done
 }
 
 print_state() {
-    print_section "MySQL Read-Only Status"
-    echo -e "  mysql-primary:   $(get_mysql_status mysql-primary)"
-    echo -e "  mysql-secondary: $(get_mysql_status mysql-secondary)"
+    print_section "MySQL Status"
+    echo -e "  mysql-primary:   $(get_mysql_status mysql-primary) | $(get_replication_status mysql-primary)"
+    echo -e "  mysql-secondary: $(get_mysql_status mysql-secondary) | $(get_replication_status mysql-secondary)"
     
     print_section "ProxySQL Hostgroups"
     get_proxysql_hostgroups
     
-    print_section "Writer Hostgroup (0) Connection Stats"
+    print_section "Writer Hostgroup Queries"
     get_connection_stats
 }
 
@@ -93,22 +108,18 @@ trap cleanup SIGINT SIGTERM
 # Main Script
 # ============================================
 
-print_header "ProxySQL Failover Cycle Test"
+print_header "ProxySQL Failover Cycle Test (with Replication)"
 echo ""
 echo "Configuration:"
 echo "  Cycle interval: ${CYCLE_WAIT} seconds"
 echo "  Press Ctrl+C to stop"
 echo ""
 
-# Step 1: Start environment
+# Step 1: Start environment (handles replication setup)
 print_header "Step 1: Starting Environment"
 ./scripts/start.sh
 
-# Set secondary to read-only (init script timing workaround)
-echo "Setting secondary to read-only..."
-docker exec mysql-secondary mysql -uroot -proot -e "SET GLOBAL read_only = ON; SET GLOBAL super_read_only = ON;" 2>/dev/null
-
-# Wait for ProxySQL to detect the change
+# Wait for ProxySQL to fully detect server roles
 sleep 3
 
 print_header "Step 2: Initial State"
@@ -124,13 +135,9 @@ while true; do
     done
     echo ""
     
-    # Failover to secondary
+    # Failover to secondary using the failover script
     print_header "Step 3: Failover - Promoting Secondary (Cycle #${cycle})"
-    echo "Demoting primary to read-only..."
-    docker exec mysql-primary mysql -uroot -proot -e "SET GLOBAL read_only = ON; SET GLOBAL super_read_only = ON;" 2>/dev/null
-    sleep 1
-    echo "Promoting secondary to read-write..."
-    docker exec mysql-secondary mysql -uroot -proot -e "SET GLOBAL super_read_only = OFF; SET GLOBAL read_only = OFF;" 2>/dev/null
+    ./scripts/failover.sh secondary
     
     # Wait for ProxySQL to detect
     sleep 3
@@ -146,13 +153,9 @@ while true; do
     done
     echo ""
     
-    # Failback to primary
+    # Failback to primary using the failover script
     print_header "Step 5: Failback - Restoring Primary (Cycle #${cycle})"
-    echo "Demoting secondary to read-only..."
-    docker exec mysql-secondary mysql -uroot -proot -e "SET GLOBAL read_only = ON; SET GLOBAL super_read_only = ON;" 2>/dev/null
-    sleep 1
-    echo "Promoting primary to read-write..."
-    docker exec mysql-primary mysql -uroot -proot -e "SET GLOBAL super_read_only = OFF; SET GLOBAL read_only = OFF;" 2>/dev/null
+    ./scripts/failover.sh primary
     
     # Wait for ProxySQL to detect
     sleep 3

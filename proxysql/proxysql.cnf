@@ -22,7 +22,7 @@ mysql_variables=
     monitor_username="monitor"
     monitor_password="monitor"
     monitor_history=600000
-    monitor_connect_interval=60000
+    monitor_connect_interval=5000
     monitor_ping_interval=10000
     monitor_read_only_interval=1500
     monitor_read_only_timeout=500
@@ -31,24 +31,29 @@ mysql_variables=
     commands_stats=true
     sessions_sort=true
     connect_retries_on_failure=10
+    # Shun configuration: Be tolerant during startup
+    # Increase failures threshold and reduce recovery time for faster automatic recovery
+    shun_on_failures=10
+    shun_recovery_time_sec=3
+    monitor_writer_is_also_reader=false
 }
 
-# Both servers start in hostgroup 1 (reader)
+# Both servers start in hostgroup 0 (writer)
 # ProxySQL's mysql_replication_hostgroups will automatically move the 
-# server with read_only=OFF to hostgroup 0 (writer)
+# server with read_only=ON to hostgroup 1 (reader)
 mysql_servers =
 (
     {
         address = "mysql-primary"
         port = 3306
-        hostgroup = 1
+        hostgroup = 0
         max_connections = 100
         weight = 1000
     },
     {
         address = "mysql-secondary"
         port = 3306
-        hostgroup = 1
+        hostgroup = 0
         max_connections = 100
         weight = 1000
     }
@@ -68,9 +73,19 @@ mysql_users =
 # Monitor user for health checks
 mysql_query_rules =
 (
-    # Route all queries to hostgroup 0 (writer/primary)
+    # Route read-only probe queries to hostgroup 1 (readers)
+    # This allows the load generator to trigger ProxySQL's lazy promotion
+    # of SHUNNED servers back to ONLINE status
     {
         rule_id = 1
+        active = 1
+        match_pattern = "/\\* ProxySQL read-only \\*/"
+        destination_hostgroup = 1
+        apply = 1
+    },
+    # Route all other queries to hostgroup 0 (writer/primary)
+    {
+        rule_id = 2
         active = 1
         match_pattern = ".*"
         destination_hostgroup = 0

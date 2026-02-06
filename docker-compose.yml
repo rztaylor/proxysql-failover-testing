@@ -25,14 +25,13 @@ services:
     container_name: mysql-secondary
     environment:
       MYSQL_ROOT_PASSWORD: root
-      MYSQL_DATABASE: company
-      MYSQL_USER: app_user
-      MYSQL_PASSWORD: app_password
     volumes:
-      - ./mysql/init-secondary:/docker-entrypoint-initdb.d:ro
       - ./mysql/secondary.cnf:/etc/mysql/conf.d/custom.cnf:ro
     ports:
       - "3308:3306"
+    depends_on:
+      mysql-primary:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot"]
       interval: 5s
@@ -44,6 +43,7 @@ services:
   proxysql:
     image: proxysql/proxysql:2.5.5
     container_name: proxysql
+    command: proxysql --initial -f /etc/proxysql.cnf
     volumes:
       - ./proxysql/proxysql.cnf:/etc/proxysql.cnf:ro
     ports:
@@ -51,8 +51,6 @@ services:
       - "6033:6033"  # MySQL interface
     depends_on:
       mysql-primary:
-        condition: service_healthy
-      mysql-secondary:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "mysql", "-h", "127.0.0.1", "-P", "6032", "-uadmin", "-padmin", "-e", "SELECT 1"]
@@ -64,6 +62,7 @@ services:
 
   loadgen:
     image: loadgen:local
+    build: ./loadgen
     container_name: loadgen
     environment:
       - PROXYSQL_HOST=proxysql
@@ -73,6 +72,7 @@ services:
       - MYSQL_DATABASE=company
     volumes:
       - ./loadgen/config.yml:/app/config.yml:ro
+      - ./loadgen/load_generator.py:/app/load_generator.py:ro
     depends_on:
       proxysql:
         condition: service_healthy

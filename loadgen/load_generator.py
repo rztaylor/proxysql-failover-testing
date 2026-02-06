@@ -17,6 +17,7 @@ from typing import Tuple, Optional
 import yaml
 import mysql.connector
 from mysql.connector import Error
+import threading
 
 # Configure logging
 logging.basicConfig(
@@ -221,6 +222,34 @@ def calculate_sleep_time(config: dict) -> float:
     return base_interval * jitter_factor
 
 
+def probe_read_replica(stop_event: threading.Event):
+    """
+    Background thread to probe read replica hostgroup.
+    
+    Sends periodic probe queries with the '/* ProxySQL read-only */' comment
+    to trigger ProxySQL's lazy promotion of SHUNNED servers back to ONLINE.
+    This simulates realistic read traffic to the replica hostgroup.
+    """
+    probe_interval = 10  # seconds
+    
+    while not stop_event.is_set():
+        try:
+            conn = get_connection()
+            if conn:
+                cursor = conn.cursor()
+                # Query with comment routes to hostgroup 1 (readers) via query rule
+                cursor.execute("SELECT /* ProxySQL read-only */ 'probe' as status")
+                cursor.fetchall()
+                cursor.close()
+                conn.close()
+                logger.info("Read replica probe successful")
+        except Exception as e:
+            logger.warning(f"Read replica probe failed: {e}")
+        
+        # Wait for interval or until stop event is set
+        stop_event.wait(probe_interval)
+
+
 def main():
     """Main loop for the load generator."""
     logger.info("Starting ProxySQL Load Generator")
@@ -247,6 +276,20 @@ def main():
         sys.exit(1)
     
     logger.info("Connected to database, starting load generation")
+    
+    # Start read replica probe thread
+    # This sends periodic queries to hostgroup 1 (readers) to trigger
+    # ProxySQL's lazy promotion of SHUNNED servers back to ONLINE
+    stop_event = threading.Event()
+    probe_thread = threading.Thread(
+        target=probe_read_replica, 
+        args=(stop_event,), 
+        daemon=True,
+        name="ReadReplicaProbe"
+    )
+    probe_thread.start()
+    logger.info("Started read replica probe thread (10s interval)")
+    
     
     # Statistics
     total_queries = 0
@@ -298,6 +341,7 @@ def main():
             
     except KeyboardInterrupt:
         logger.info("Shutting down...")
+        stop_event.set()  # Signal probe thread to stop
     finally:
         if conn and conn.is_connected():
             conn.close()
