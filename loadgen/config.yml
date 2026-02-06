@@ -1,0 +1,18 @@
+# Load Generator Configuration
+# Adjust these values to change load characteristics
+
+# Base request rate (requests per second)
+base_rate: 5
+
+# Random jitter applied to request timing (±percentage)
+# 0.2 means ±20%, so requests will vary between 4-6 per second
+rate_jitter: 0.2
+
+# Query weight distribution (must sum to 1.0)
+# - small: Single row lookups, department/employee by ID (~5-10 rows)
+# - medium: Filtered queries, aggregations (~20-50 rows)
+# - large: Full table scans, complex joins (~100+ rows)
+query_weights:
+  small: 0.5
+  medium: 0.3
+  large: 0.2

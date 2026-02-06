@@ -1,0 +1,90 @@
+datadir="/var/lib/proxysql"
+
+admin_variables=
+{
+    admin_credentials="admin:admin;radmin:radmin"
+    mysql_ifaces="0.0.0.0:6032"
+}
+
+mysql_variables=
+{
+    threads=4
+    max_connections=2048
+    default_query_delay=0
+    default_query_timeout=36000000
+    have_compress=true
+    poll_timeout=2000
+    interfaces="0.0.0.0:6033"
+    default_schema="company"
+    stacksize=1048576
+    server_version="8.0.32"
+    connect_timeout_server=3000
+    monitor_username="monitor"
+    monitor_password="monitor"
+    monitor_history=600000
+    monitor_connect_interval=60000
+    monitor_ping_interval=10000
+    monitor_read_only_interval=1500
+    monitor_read_only_timeout=500
+    ping_interval_server_msec=120000
+    ping_timeout_server=500
+    commands_stats=true
+    sessions_sort=true
+    connect_retries_on_failure=10
+}
+
+# Both servers start in hostgroup 1 (reader)
+# ProxySQL's mysql_replication_hostgroups will automatically move the 
+# server with read_only=OFF to hostgroup 0 (writer)
+mysql_servers =
+(
+    {
+        address = "mysql-primary"
+        port = 3306
+        hostgroup = 1
+        max_connections = 100
+        weight = 1000
+    },
+    {
+        address = "mysql-secondary"
+        port = 3306
+        hostgroup = 1
+        max_connections = 100
+        weight = 1000
+    }
+)
+
+mysql_users =
+(
+    {
+        username = "app_user"
+        password = "app_password"
+        default_hostgroup = 0
+        max_connections = 200
+        active = 1
+    }
+)
+
+# Monitor user for health checks
+mysql_query_rules =
+(
+    # Route all queries to hostgroup 0 (writer/primary)
+    {
+        rule_id = 1
+        active = 1
+        match_pattern = ".*"
+        destination_hostgroup = 0
+        apply = 1
+    }
+)
+
+# Replication hostgroups configuration for read_only monitoring
+mysql_replication_hostgroups =
+(
+    {
+        writer_hostgroup = 0
+        reader_hostgroup = 1
+        check_type = "read_only"
+        comment = "Primary/Secondary failover based on read_only"
+    }
+)
