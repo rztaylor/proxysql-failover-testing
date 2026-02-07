@@ -12,11 +12,11 @@ mysql_variables=
     max_connections=2048
     default_query_delay=0
     default_query_timeout=36000000
-    have_compress=true
     poll_timeout=2000
     interfaces="0.0.0.0:6033"
     default_schema="company"
-    stacksize=1048576
+    # Stacksize needs to be increased from 1MB to 8MB for v3 and above
+    stacksize=8388608
     server_version="8.0.32"
     connect_timeout_server=3000
     monitor_username="monitor"
@@ -29,7 +29,6 @@ mysql_variables=
     ping_interval_server_msec=120000
     ping_timeout_server=500
     commands_stats=true
-    sessions_sort=true
     connect_retries_on_failure=10
     # Shun configuration: Be tolerant during startup
     # Increase failures threshold and reduce recovery time for faster automatic recovery
