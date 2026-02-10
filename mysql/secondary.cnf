@@ -9,5 +9,6 @@ binlog_expire_logs_seconds=86400
 relay_log=relay-bin
 relay_log_purge=ON
 skip_replica_start=ON
-# Note: read_only must be OFF during startup for Docker entrypoint initialization
-# start.sh will set it to ON immediately after startup
+# Note: read_only is managed via SET PERSIST commands (not in this config file)
+# This allows the setting to persist across docker stop/start while still
+# allowing Docker entrypoint initialization to work properly on first run

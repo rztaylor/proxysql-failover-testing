@@ -76,7 +76,53 @@ docker compose stop loadgen
 docker compose start loadgen
 ```
 
-### 5. Stop and Cleanup
+### 5. Simulate Database Outages
+
+You can simulate database failures and recoveries using `docker stop/start`.
+
+**Basic Outage Simulation:**
+```bash
+# Simulate secondary database failure
+docker stop mysql-secondary
+
+# Observe in monitor: secondary becomes SHUNNED
+
+# Simulate recovery
+docker start mysql-secondary
+
+# Observe: secondary recovers to ONLINE within ~10 seconds
+```
+
+**Manually Controlling Replication:**
+
+By default, replication does NOT auto-start after a container restart (controlled by `skip_replica_start=ON` in the config). If you need to manually start or stop replication:
+
+```bash
+# Start replication
+./scripts/set_replication.sh mysql-secondary start
+
+# Stop replication
+./scripts/set_replication.sh mysql-secondary stop
+```
+
+**Example Workflow:**
+```bash
+# 1. Simulate outage
+docker stop mysql-secondary
+
+# 2. Restart
+docker start mysql-secondary
+
+# 3. Manually start replication (since auto-start is disabled by default)
+./scripts/set_replication.sh mysql-secondary start
+
+# 4. Verify replication is running
+docker exec mysql-secondary mysql -uroot -proot -e "SHOW REPLICA STATUS\G" | grep Running
+```
+
+> **Note:** The `read_only` state is persisted using MySQL 8.0's `SET PERSIST` feature and survives `docker stop/start` cycles. Replication configuration is also persisted, but replication does not auto-start unless you remove `skip_replica_start=ON` from the MySQL configuration file.
+
+### 6. Stop and Cleanup
 ```bash
 ./scripts/stop.sh
 ```
@@ -86,26 +132,27 @@ Stops containers and removes volumes (resets data).
 
 All scripts are located in the `scripts/` directory.
 
-| Script | Purpose |
-|--------|---------|
-| `start.sh` | Start environment with replication initialized. |
-| `stop.sh` | Stop environment and cleanup data volumes. |
-| `status.sh` | Show MySQL read_only state, replication status, and ProxySQL rules. |
-| `failover.sh <target>` | Perform manual failover. Target: `primary` or `secondary`. |
-| `monitor.sh [interval]` | Run a real-time monitor dashboard. Default interval: 2s. |
-| `test-failover-cycle.sh [interval]` | Run an automated loop of failover/failback. Default: 30s. |
-| `reload-proxysql.sh` | Reload ProxySQL configuration from `proxysql.cnf` without restart. |
+| Script                                         | Purpose                                                             |
+| ---------------------------------------------- | ------------------------------------------------------------------- |
+| `start.sh`                                     | Start environment with replication initialized.                     |
+| `stop.sh`                                      | Stop environment and cleanup data volumes.                          |
+| `status.sh`                                    | Show MySQL read_only state, replication status, and ProxySQL rules. |
+| `failover.sh <target>`                         | Perform manual failover. Target: `primary` or `secondary`.          |
+| `set_replication.sh <container> <start\|stop>` | Manually start or stop replication on a container.                  |
+| `monitor.sh [interval]`                        | Run a real-time monitor dashboard. Default interval: 2s.            |
+| `test-failover-cycle.sh [interval]`            | Run an automated loop of failover/failback. Default: 30s.           |
+| `reload-proxysql.sh`                           | Reload ProxySQL configuration from `proxysql.cnf` without restart.  |
 
 ## Configuration Reference
 
 ### Ports & Credentials
 
-| Service | Port | Internal | User | Password |
-|:------- |:---- |:---------|:-----|:---------|
-| **ProxySQL (App)** | **6033** | | `app_user` | `app_password` |
-| **ProxySQL (Admin)** | 6032 | | `admin` | `admin` |
-| Primary MySQL | 3307 | 3306 | `root` | `root` |
-| Secondary MySQL | 3308 | 3306 | `root` | `root` |
+| Service              | Port     | Internal | User       | Password       |
+| :------------------- | :------- | :------- | :--------- | :------------- |
+| **ProxySQL (App)**   | **6033** |          | `app_user` | `app_password` |
+| **ProxySQL (Admin)** | 6032     |          | `admin`    | `admin`        |
+| Primary MySQL        | 3307     | 3306     | `root`     | `root`         |
+| Secondary MySQL      | 3308     | 3306     | `root`     | `root`         |
 
 **Database Name:** `company`
 
@@ -136,12 +183,12 @@ SELECT * FROM monitor_read_only_log ORDER BY time_start_us DESC LIMIT 5;
 ```
 
 **Server Status Values:**
-| Status | Meaning |
-|--------|---------|
-| `ONLINE` | Server is healthy and receiving traffic. |
-| `SHUNNED` | Server is temporarily excluded due to connection failures. |
-| `OFFLINE_SOFT` | Server is draining connections (graceful removal). |
-| `OFFLINE_HARD` | Server is immediately removed from rotation. |
+| Status         | Meaning                                                    |
+| -------------- | ---------------------------------------------------------- |
+| `ONLINE`       | Server is healthy and receiving traffic.                   |
+| `SHUNNED`      | Server is temporarily excluded due to connection failures. |
+| `OFFLINE_SOFT` | Server is draining connections (graceful removal).         |
+| `OFFLINE_HARD` | Server is immediately removed from rotation.               |
 
 ## Troubleshooting
 
@@ -169,9 +216,9 @@ If the state gets inconsistent, it's often easiest to restart fresh:
 
 ### Common Mistakes
 
-| Mistake | Consequence | Solution |
-|---------|-------------|----------|
-| Promoting before GTID sync completes | Data loss or replication errors | Always wait for `Executed_Gtid_Set` to match before promotion. |
-| Not setting `read_only` correctly | ProxySQL routes to wrong server | After failover, verify `read_only` with `./scripts/status.sh`. |
-| Forgetting to update replication source | Old Primary still replicating from itself | Use `failover.sh` which handles this automatically. |
-| Connecting directly to MySQL instead of ProxySQL | Bypasses routing and failover protection | Always connect via port `6033` for application traffic. |
+| Mistake                                          | Consequence                               | Solution                                                       |
+| ------------------------------------------------ | ----------------------------------------- | -------------------------------------------------------------- |
+| Promoting before GTID sync completes             | Data loss or replication errors           | Always wait for `Executed_Gtid_Set` to match before promotion. |
+| Not setting `read_only` correctly                | ProxySQL routes to wrong server           | After failover, verify `read_only` with `./scripts/status.sh`. |
+| Forgetting to update replication source          | Old Primary still replicating from itself | Use `failover.sh` which handles this automatically.            |
+| Connecting directly to MySQL instead of ProxySQL | Bypasses routing and failover protection  | Always connect via port `6033` for application traffic.        |

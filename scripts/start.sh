@@ -29,7 +29,7 @@ set_readonly() {
     local container=$1
     local mode=$2  # ON or OFF
     docker exec "$container" mysql -uroot -proot -e \
-        "SET GLOBAL read_only = $mode; SET GLOBAL super_read_only = $mode;" 2>/dev/null
+        "SET PERSIST read_only = $mode; SET PERSIST super_read_only = $mode;" 2>/dev/null
 }
 
 echo "=== ProxySQL Failover Test Environment (with Replication) ==="

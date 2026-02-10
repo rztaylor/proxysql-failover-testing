@@ -1,11 +1,12 @@
 {
+    "peacock.remoteColor": "#e91568",
+    "peacock.color": "#e91568",
     "workbench.colorCustomizations": {
         "commandCenter.border": "#e7e7e799",
+        "tab.activeBorder": "#ee4386",
         "titleBar.activeBackground": "#e91568",
         "titleBar.activeForeground": "#e7e7e7",
         "titleBar.inactiveBackground": "#e9156899",
-        "titleBar.inactiveForeground": "#e7e7e799",
-        "tab.activeBorder": "#ee4386"
-    },
-    "peacock.remoteColor": "#e91568"
+        "titleBar.inactiveForeground": "#e7e7e799"
+    }
 }

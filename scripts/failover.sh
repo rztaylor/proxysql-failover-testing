@@ -70,7 +70,7 @@ case $COMMAND in
         
         # Step 1: Stop writes to primary (prevent new transactions)
         echo "Step 1: Stopping writes to primary..."
-        execute_mysql mysql-primary "SET GLOBAL read_only = ON; SET GLOBAL super_read_only = ON;"
+        execute_mysql mysql-primary "SET PERSIST read_only = ON; SET PERSIST super_read_only = ON;"
         echo -e "  ${GREEN}✓${NC} Primary is now READ-ONLY"
         
         # Step 2: Wait for replica to catch up
@@ -87,7 +87,7 @@ case $COMMAND in
         # Step 4: Promote secondary to read-write
         echo ""
         echo "Step 4: Promoting secondary to READ-WRITE..."
-        execute_mysql mysql-secondary "SET GLOBAL super_read_only = OFF; SET GLOBAL read_only = OFF;"
+        execute_mysql mysql-secondary "SET PERSIST super_read_only = OFF; SET PERSIST read_only = OFF;"
         echo -e "  ${GREEN}✓${NC} Secondary is now READ-WRITE (new primary)"
         
         # Step 5: Configure old primary as replica of new primary (optional but recommended)
@@ -123,7 +123,7 @@ case $COMMAND in
         
         # Step 1: Stop writes to secondary (current primary)
         echo "Step 1: Stopping writes to secondary (current primary)..."
-        execute_mysql mysql-secondary "SET GLOBAL read_only = ON; SET GLOBAL super_read_only = ON;"
+        execute_mysql mysql-secondary "SET PERSIST read_only = ON; SET PERSIST super_read_only = ON;"
         echo -e "  ${GREEN}✓${NC} Secondary is now READ-ONLY"
         
         # Step 2: Wait for primary (replica) to catch up
@@ -135,7 +135,7 @@ case $COMMAND in
         echo ""
         echo "Step 3: Stopping replication on primary and promoting..."
         execute_mysql mysql-primary "STOP REPLICA; RESET REPLICA ALL;"
-        execute_mysql mysql-primary "SET GLOBAL super_read_only = OFF; SET GLOBAL read_only = OFF;"
+        execute_mysql mysql-primary "SET PERSIST super_read_only = OFF; SET PERSIST read_only = OFF;"
         echo -e "  ${GREEN}✓${NC} Primary is now READ-WRITE"
         
         # Step 4: Reconfigure secondary as replica of primary
